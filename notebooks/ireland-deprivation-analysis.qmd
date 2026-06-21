@@ -1,0 +1,490 @@
+---
+title: "Multivariate Analysis Assignment"
+author: "Victoria Arróniz Soriano 25221241"
+format: pdf
+editor: visual
+---
+
+::: {.content-hidden when-format="pdf"}
+## Dataset Details
+
+**This assignment is based the [2022 Pobal HP Deprivation Index](https://www.pobal.ie/research-analysis/open-data/) data set. These data are collated from the 2022 Census of Population in order to help understand the level of relative affluence and deprivation at the level of electoral division across Ireland. Each area has several variables such as educational attainment, population level, employment status, etc. The provided variables are described in Table 1.**
+
+**The first 2 columns in the dataset contain geographic identifiers. Columns 3-15 contain the socioeconomic variables to be analysed. Columns 16-17 contain the deprivation index score and the deprivation index category, i.e., the regions’ deprivation index is labelled as *“Extremely Disadvantaged”* if index rel** $\leq −30$**, *“Very Disadvantaged”* if index_rel** $\in (−30,−20]$**, *“Disadvantaged”* if index_rel** $\in (−20,−10]$**, *“Marginally Below Average”* if index_rel** $\in (−10, 0]$**, “Marg*inally Above Average”* if index_rel** $\in (0, 10]$**, and, *“Affluent”* if index_rel** $> 10$**. The variable index rel is estimated and provided by Pobal; it should be treated as a response variable, and so should not be used as a predictor, or used in clustering solutions, etc.**
+
+| Variable | Description |
+|------------------------------------|------------------------------------|
+| ED ID | Electoral District ID |
+| ED NAME | Electoral District name |
+| TOTPOP | Census total population 2022 |
+| AGEDEP | \% population aged under 15 or over 64 years of age |
+| EDLOW | \% population with a primary school education only |
+| EDHIGH | \% population with a third level education |
+| HLPROF | \% households headed by professionals or managerial and technical employees |
+| LCLASS | \% households headed by semi-skilled or unskilled manual workers |
+| PEROOM | Mean number of Persons per room |
+| LONEPA | \% households with children aged under 15 years and headed by a single parent |
+| UNEMPM | Male Unemployment |
+| UNEMPF | Female Unemployment |
+| OWNOCC | \% accommodation owned |
+| PRRENT | \% accommodation privately rented |
+| LARENT | Local Authority rented accommodation |
+| index_rel | Relative deprivation index score |
+| index_lab | Deprivation index label |
+:::
+
+## Question 1
+
+::: {.content-hidden when-format="pdf"}
+**Read the formatted dataset** `pobal_di_2022.csv` **from Brightspace into R. Use the** `set.seed` **function in R to set the seed to your student number. Sample (without replacement) a random subset of 1,000 observations from the dataset. Use this subset of the data for your entire analysis. Ensure that you include the code used in this step in the R code you submit with your assignment so that your work can be reproduced.**
+:::
+
+```{r, Q1}
+set.seed(25221241)
+pobal_2022 <- read.csv("pobal_di_2022.csv")
+pobal_sample <- pobal_2022[sample(nrow(pobal_2022), 1000, replace = FALSE), ]
+```
+
+The dataset `pobal_di_2022.csv` was imported into R using `read.csv()`. To ensure reproducibility, the random seed was set using `set.seed()`. A random sample of 1,000 observations was then drawn without replacement from the dataset using `sample()`.
+
+## Question 2
+
+::: {.content-hidden when-format="pdf"}
+**Visualise the socio-economic covariates using suitable plots. You may need to select subsets of the variables to allow plotting. Comment on the distributions of these variables. Identify any potential issues in the data and their implications for multivariate analyses methods we’ve encountered in class. Deal with any potential issues using appropriate methods.**
+:::
+
+The socioeconomic covariates (columns 3–15) are examined to assess data quality and distributional properties prior to applying multivariate methods.
+
+```{r, Q2-1}
+miss_prop <- mean(is.na(pobal_sample)); miss_prop
+```
+
+No missing values are detected in the sampled dataset.
+
+Histograms and summary statistics are used to examine the distributions and ranges of the variables.
+
+```{r, Q2-2}
+#| message: false
+#| warning: false
+#| fig-height: 10
+#| fig-width: 10
+
+library(tidyverse)
+num_pobal <- pobal_sample[, 3:15]; summary(num_pobal)
+num_pobal_long <- num_pobal |> mutate(row_id = row_number()) |>
+  pivot_longer(-row_id, names_to = "variable", values_to = "value")
+ggplot(num_pobal_long, aes(x = value)) + geom_histogram(bins = 30) +
+  facet_wrap(~ variable, scales = "free", ncol = 4) + theme_bw()
+```
+
+-   `AGEDEP`. Displays moderate variability with values ranging from approximately 12 to 55, indicating differences in age dependency ratios across areas.
+
+-   `EDHIGH`: Shows substantial variability (10.31–84.33), reflecting differences in the proportion of highly educated individuals.
+
+-   `EDLOW`. Moderately right-skewed distribution, with values ranging from 0.83 to 36, indicating variation in the proportion of individuals with low educational attainment.
+
+-   `HLPROF.`**:**Displays moderate dispersion across areas, with values ranging from approximately 12 to 73.
+
+-   `LARENT`. Displays a right-skewed distribution with some high values (0–64.74), reflecting variation in local authority rental housing.
+
+-   `LCLASS`. Shows variability in the proportion of lower social class occupations, with a range between 2.6 and 42.3.
+
+-   `LONEPA`. Right-skewed distribution, with values ranging from 0 to 76.9, indicating substantial variation in the proportion of lone-parent households.
+
+-   `OWNOCC`. Left-skewed wide distribution (6–98.31), reflecting variation in the proportion of owner-occupied housing across areas.
+
+-   `PEROOM`. Relatively concentrated distribution with small variability (0.36–0.93), representing housing density per room.
+
+-   `PRRENT`. Right-skewed distribution with a wide range (0–80.58), indicating variability in private rental rates.
+
+-   `TOTPOP.` Strongly right-skewed distribution. The summary statistics indicate a large spread (Min = 71, Median = 660.5, Max = 43,905), reflecting substantial variation in population size across areas.
+
+-   `UNEMPF`. Moderately right-skewed distribution,ranging from 0 to 33.25.
+
+-   `UNEMPM`. Similar distribution to female unemployment, with values ranging from 0 to 32.17.
+
+The variables are measured on different scales (e.g., population counts versus percentages). To prevent variables with larger magnitudes from dominating the clustering results, all socioeconomic covariates are standardised prior to the analysis.
+
+To further assess the structure of the data, the correlation matrix of the standardised variables is examined.
+
+```{r, Q2-3}
+#| message: false
+#| warning: false
+library(corrplot)
+pobal_scaled <- apply(num_pobal,2,scale)
+corrplot(cor(pobal_scaled), method = "color", type = "lower",
+         tl.cex = 0.8, addCoef.col = "black", number.cex = 0.6)
+```
+
+The correlation matrix reveals several strong dependencies among the variables. The strongest associations include `PRRENT`–`LARENT` (0.87), `OWNOCC`–`PRRENT` (–0.87), `HLPROF`–`LCLASS` (–0.84), and `LCLASS`–`EDLOW` (0.84), all of which are sociologically coherent. `UNEMPM` and `UNEMPF` are also closely related (0.63), as both reflect the same local labour market conditions.
+
+These correlations indicate the presence of multicollinearity, which has implications for the methods applied in subsequent questions.
+
+## Question 3
+
+::: {.content-hidden when-format="pdf"}
+**Cluster the socio-economic variables using the two methods discussed in class. Motivate any decisions you make. Comparing with the Deprivation index label (index lab), interpret the socio-economic relevance of the clusters, if any. Determine and discuss, with evidence, the optimal clustering solution.**
+:::
+
+The elbow method, based on the within-group sum of squares (WGSS), is used to determine an appropriate number of clusters.
+
+```{r, Q3-1}
+library(cluster)
+set.seed(25221241)
+pobal_scaled <- apply(num_pobal,2,scale)
+WGSS = rep(0,10)
+for(k in 1:10)
+{
+WGSS[k] = sum(kmeans(pobal_scaled, centers=k, nstart=25)$withinss)
+}
+plot(1:10, WGSS, type="b", xlab="k", ylab="Within group sum of squares")
+```
+
+The elbow plot shows a clear reduction in WGSS up to approximately $k=3$, after which the decrease becomes more gradual. This suggests that three clusters provide a reasonable balance between model complexity and explanatory power.
+
+Once the number of clusters is selected, the two clustering methods discussed in class are applied: k-means clustering and hierarchical clustering using Ward’s method.
+
+A dendrogram is not produced here as, with $n=1000$ observations, it becomes too dense to be visually interpretable.
+
+```{r, Q3-2}
+#| message: false
+#| warning: false
+library(dendextend)
+set.seed(25221241)
+k <- 3
+km3 <- kmeans(pobal_scaled, centers=k, nstart=25)
+km3_ord <- factor(km3$cluster,levels = names(sort(table(km3$cluster), 
+                  decreasing = TRUE)), labels = 1:k)
+hcl.ward = hclust(dist(pobal_scaled), method="ward.D2")
+hcl <- cutree(hcl.ward, k = k)
+cbind(kmeans = table(km3_ord), hierarchical = table(hcl))
+table(hcl, km3_ord)
+```
+
+The resulting cluster sizes are broadly similar across methods, and the cross-tabulation between the k-means and hierarchical clustering solutions indicates substantial agreement between them.
+
+```{r, Q3-3}
+#| message: false
+#| warning: false
+library(e1071)
+agree_methods <- classAgreement(table(km3_ord, hcl))
+data.frame(Rand = agree_methods$rand, Corrected_Rand = agree_methods$crand)
+```
+
+Both indices confirm a high level of correspondence between the k-means and hierarchical solutions, indicating that the three-cluster structure is robust to the choice of method.
+
+To interpret the socio-economic relevance of the clusters, the cluster memberships are compared with the Deprivation Index label (`index_lab`).
+
+```{r, Q3-5}
+#| fig-height: 5
+#| fig-width: 10
+ordered_levels <- c("Affluent", "Marginally Above Average",
+  "Marginally Below Average", "Disadvantaged", "Very Disadvantaged")
+pobal_sample$index_lab <- factor(pobal_sample$index_lab,
+                                 levels = ordered_levels)
+tab_kmeans <- table(pobal_sample$index_lab, km3_ord)
+prop_tab_kmeans <- prop.table(tab_kmeans, 1)
+tab_hcl <- table(pobal_sample$index_lab,hcl)
+prop_tab_hcl <- prop.table(tab_hcl, 1)
+```
+
+```{r, Q3-6}
+#| fig-height: 12
+#| fig-width: 14
+par(mfrow = c(2,1), mar = c(5, 20, 5, 20),  xpd = NA)
+cols <- c("#1f77b4", "#2ca02c", "#d62728")
+plot_cluster <- function(tab, title){
+  barplot(t(tab), col = cols, horiz = TRUE, xlim = c(0,1), 
+          xlab = "Proportion", main = title, las = 1, cex.names = 0.8)
+  legend("topright", inset = c(-0.25,0),
+         legend = paste("Cluster", colnames(tab)),
+         fill = cols, bty = "n", cex = 0.8)}
+plot_cluster(prop_tab_kmeans, "Cluster k-means")
+plot_cluster(prop_tab_hcl, "Cluster Hierarchical")
+```
+
+The results show a clear pattern. One cluster is predominantly associated with Very Disadvantaged and Disadvantaged areas, while another cluster is largely composed of Affluent and Marginally Above Average areas. The remaining cluster captures intermediate levels of deprivation, particularly Marginally Below Average areas.
+
+This correspondence suggests that clustering based solely on socioeconomic variables captures meaningful underlying deprivation structures. Both clustering methods produce very similar patterns when compared with the deprivation labels.
+
+Overall, the evidence from the elbow plot, the similarity between clustering methods, and the strong association with the deprivation categories supports $k=3$ as the optimal clustering solution for the socioeconomic variables.
+
+## Question 4
+
+::: {.content-hidden when-format="pdf"}
+**Using methods discussed in class, quantify and comment on the stability and generalisability of your k-means clustering solutions from Question 3.**
+:::
+
+To assess the stability and generalisability of the k-means clustering, the dataset is randomly divided into two subsets: a calibration sample (500 observations) and a validation sample (500 observations).
+
+First, k-means clustering with $k=3$ is applied to the calibration sample. The resulting cluster centroids are then used to assign the observations in the validation sample to the nearest cluster, producing a set of predicted cluster memberships. Independently, k-means clustering with $k=3$ is also applied directly to the validation sample.
+
+The two clustering solutions for the validation data are then compared using a contingency table and agreement measures.
+
+```{r, Q4-1}
+#| message: false
+#| warning: false
+set.seed(25221241)
+idx_cal <- sample(1:1000, size = 500, replace = FALSE)
+pobal_cal <- pobal_scaled[idx_cal, ]  # calibration sample
+pobal_val <- pobal_scaled[-idx_cal, ] # validation sample
+km_cal <- kmeans(pobal_cal, centers = k, nstart = 25)
+d_to_centroids <- sapply(1:k, function(j)
+  rowSums((pobal_val - km_cal$centers[j, ])^2)
+)
+S1 <- max.col(-d_to_centroids) 
+
+km_val <- kmeans(pobal_val, centers = k, nstart = 25)
+S2 <- km_val$cluster             
+```
+
+The two clustering solutions for the validation data are then compared using a contingency table and agreement measures.
+
+```{r, Q4-2}
+tab <- table(S1, S2); tab
+```
+
+The contingency table shows an unbalanced distribution of assignments, with cluster labels not necessarily corresponding between the two independent solutions. Agreement between S1 and S2 is therefore better assessed through summary measures.
+
+```{r, Q4-3}
+agree_4 <- classAgreement(tab)
+data.frame(Rand = agree_4$rand, Corrected_Rand = agree_4$crand)
+```
+
+The Rand index is approximately 0.65, indicating a moderate level of agreement between the two partitions. The corrected Rand index is approximately 0.28, suggesting that the agreement between the clustering solutions is limited once agreement expected by chance is accounted for.
+
+Overall, these results suggest that while some structure is captured by the k-means clustering, the clustering solution shows moderate stability and limited generalisability across different samples of the data.
+
+## Question 5
+
+::: {.content-hidden when-format="pdf"}
+**We want to be able to predict if an area is above or below the average deprivation index using the socio-economic covariates provided. Derive a bivariate categorical variable based on index rel being ≥ 0 (above average deprivation index), or \< 0 (below average deprivation index). This variable is a simplified version of the index lab variable in the data. Perform classification of your new categorical variable using an LDA model. Assess how well your classifier performs using an appropriate method. Would a QDA be preferable in this setting? Justify your reasoning.**
+:::
+
+First, we create a binary categorical variable from `index_rel`. Observations with `index_rel ≥ 0` are classified as above or equal to the average deprivation index, while observations with `index_rel < 0` are classified as below the average deprivation index.
+
+```{r, Q5-1}
+#| message: false
+#| warning: false
+library(MASS)
+pobal_sample$depr_bin <- factor(ifelse(pobal_sample$index_rel >= 0,
+                                       "above_or_equal_0", "below_0"))
+```
+
+Once the variable is created, an LDA model is fitted using the socioeconomic covariates as predictors. The performance of the classifier is assessed using cross-validation.
+
+```{r, Q5-2}
+DA_data <- data.frame(depr_bin = pobal_sample$depr_bin, num_pobal)
+lda.res.cv <- lda(depr_bin ~. , data=DA_data, CV=TRUE)
+tab_lda <- table(lda.res.cv$class, DA_data$depr_bin); tab_lda
+lda_misclass <- 1 - sum(diag(tab_lda)) / sum(tab_lda); lda_misclass
+```
+
+The resulting confusion matrix shows that the model correctly classifies 438 observations in the `above_or_equal_0` category and 497 observations in the `below_0` category, with relatively few misclassifications. The estimated misclassification rate is 0.065, corresponding to an accuracy of approximately 93.5%. This indicates that the socioeconomic variables contain substantial information for distinguishing between areas above and below the average deprivation index.
+
+For comparison, a QDA model is also fitted using the same predictors and evaluated using cross-validation.
+
+```{r, Q5-3}
+qda.res.cv <- qda(depr_bin ~. , data=DA_data, CV=TRUE)
+tab_qda <- table(qda.res.cv$class, DA_data$depr_bin); tab_qda
+qda_misclass <- 1 - sum(diag(tab_qda)) / sum(tab_qda); qda_misclass
+```
+
+The QDA classifier produces a higher misclassification rate of $0.111$, corresponding to an accuracy of approximately $88.9\%$, indicating worse predictive performance than LDA.
+
+From a theoretical perspective, LDA assumes a common covariance matrix across groups ($\Sigma_1 = \Sigma_2$), whereas QDA estimates a separate covariance matrix for each group, requiring substantially more parameters. When the true decision boundary is approximately linear, this additional complexity increases variance without a meaningful reduction in bias. The lower cross-validated misclassification rate of LDA ($6.5\%$ vs $11.1\%$) supports this, suggesting that the equal covariance assumption is reasonable for these data.
+
+## Question 6
+
+::: {.content-hidden when-format="pdf"}
+**Apply principal components analysis to the socio-economic variables of the deprivation index data, motivating any decisions you make in the process. How many principal components do you think are required to represent the data? Evidence and justify your answer. Plot an appropriate number of principal component scores for the observations and comment on any structure you observe (with respect to earlier clustering solutions).**
+:::
+
+```{r, Q6-1}
+#| fig-height: 5
+#| fig-width: 10
+pca <- prcomp(pobal_scaled); summary(pca)
+plot(pca, type="l", main="Screen plot")
+```
+
+Principal Components Analysis was applied to the standardised socio-economic variables. The scree plot shows a sharp decrease in the variance explained by the first few components, followed by a much flatter curve, suggesting an elbow around the third component. The first principal component explains $43.23\%$ of the total variance and the second explains $25.5\%$. Together, the first two components account for $68.73\%$ of the total variance, while the first three components explain approximately $75\%$.
+
+Therefore, retaining the first three principal components provides a good low-dimensional representation of the data.
+
+To interpret the principal components, the loadings are examined.
+
+```{r, Q6-2}
+round(pca$rotation[, 1:3], 3)
+```
+
+The first principal component has high positive loadings on `LONEPA`, `LCLASS`, `UNEMPM`, `UNEMPF` and `LARENT`, and large negative loadings on `HLPROF` and `OWNOCC`, capturing a socioeconomic deprivation gradient that contrasts disadvantaged against affluent areas. The second component contrasts highly educated, privately renting areas (`EDHIGH`, `PRRENT`) against older, less educated areas (`EDLOW`, `AGEDEP`). The third component is dominated by `TOTPOP`, reflecting variation in population size independently of the deprivation gradient.
+
+To visualise the structure of the data, scatter plots of the principal component scores for the first three components are examined.
+
+```{r, Q6-3}
+#| fig-height: 5
+#| fig-width: 10
+scores <- pca$x[,1:3]
+par(mfrow = c(1,3))  
+plot(scores[,1], scores[,2], xlab = "PC1", ylab = "PC2", pch = 16,
+     main = "PC1 vs PC2")
+plot(scores[,1], scores[,3], xlab = "PC1", ylab = "PC3", pch = 16, 
+     main = "PC1 vs PC3")
+plot(scores[,2], scores[,3], xlab = "PC2", ylab = "PC3", pch = 16, 
+     main = "PC2 vs PC3")
+```
+
+The PC1–PC2 plot shows clear separation of observations along the first principal component, consistent with the deprivation gradient identified in the loadings. The plots involving PC3 show a more concentrated distribution with limited additional separation. The structure observed in the score plots is broadly consistent with the clustering results obtained in Question 3: the spread of observations along PC1 reflects the underlying socioeconomic differences that contributed to the three clusters identified earlier.
+
+## Question 7
+
+::: {.content-hidden when-format="pdf"}
+**Cluster the PCA-reduced data using an appropriate number of PCA scores (as decided in Question 6) and your best performing clustering methods (from Question 3). Compare clustering directly on the reduced-dimension space with clustering on the original variables. Discuss advantages and disadvantages of clustering in a reduced-dimension space.**
+:::
+
+The data are clustered using the first three principal component scores, as selected in Question 6. These components capture approximately $75\%$ of the total variance, providing a suitable low-dimensional representation of the data. The k-means algorithm with $k=3$, identified as the best-performing method in Question 3, is applied to the PCA-reduced data.
+
+```{r, Q7-1}
+set.seed(25221241)
+pca_km <- kmeans(scores, centers = 3, nstart = 20)
+pca_km_ord <- factor(pca_km$cluster, levels = names(sort(table(pca_km$cluster), 
+                  decreasing = TRUE)), labels = 1:k)
+km3_pca_tab <- table(original = km3_ord, pca = pca_km_ord); km3_pca_tab
+agree_7 <- classAgreement(km3_pca_tab)
+data.frame(Rand = agree_7$rand, Corrected_Rand = agree_7$crand)
+```
+
+The resulting clustering is compared with the clustering obtained from the original variables. The contingency table shows an almost perfect correspondence between both solutions, with very few observations assigned to different clusters. This is further confirmed by the Rand index ($\approx 0.983$) and the corrected Rand index ($\approx 0.965$), indicating a very high level of agreement between the two clustering approaches.
+
+```{r, Q7-2}
+#| fig-height: 5
+#| fig-width: 10
+plot(scores[,1], scores[,2], col = pca_km_ord, pch = 16,
+     xlab = "PC1", ylab = "PC2", main = "Clustering on PCA-reduced data")
+```
+
+Clustering in the reduced-dimensional space presents several advantages: it removes noise that could distort Euclidean distances, and addresses the multicollinearity identified in Question 2 by combining redundant variables into orthogonal components. It also facilitates visualisation, as shown in the PC1–PC2 plot. However, the main disadvantage is the loss of interpretability, since clusters in the PCA space cannot be described directly in terms of individual socioeconomic indicators. Additionally, discarding lower components may remove information that is relevant to the clustering structure despite representing a small proportion of total variance.
+
+```{r, Q7-3}
+#| fig-height: 5
+#| fig-width: 10
+tab_pca_km <- table(pobal_sample$index_lab, pca_km_ord)
+prop_tab_pca_km <- prop.table(tab_pca_km, 1)
+par(mar = c(5, 10, 3, 15),  xpd = NA)
+plot_cluster(prop_tab_pca_km, "Cluster PCA-Kmeans")
+```
+
+When comparing the clusters with the Deprivation Index label (`index_lab`), a similar socio-economic structure is observed as in Question 3. One cluster is predominantly associated with Very Disadvantaged and Disadvantaged areas, another with Affluent and Marginally Above Average areas, and a third cluster captures intermediate levels of deprivation.
+
+Overall, the strong agreement between clustering in the original and reduced spaces suggests that PCA effectively captures the main structure of the data, and clustering on the reduced space provides a reliable and efficient alternative.
+
+## Question 8
+
+::: {.content-hidden when-format="pdf"}
+**Refit LDA to predict your constructed bivariate variable (constructed in Question 5) using the first two principal components (as found in Question 6) as predictors. Produce a plot showing the linear Bayes decision boundaries arising from your LDA model. See <https://rpubs.com/ZheWangDataAnalytics/DecisionBoundary> for example code on plotting decision boundaries.**
+
+```{r, Q8-0}
+# input: 
+# model: classification model
+# data: training set
+# class: response variable
+
+boundary <- function(model, data, class = NULL, predict_type = "class",
+  resolution = 100, showgrid = TRUE, ...) {
+
+  if(!is.null(class)) cl <- data[,class] else cl <- 1
+  data <- data[,1:2]
+  k <- length(unique(cl))
+
+  plot(data, col = as.integer(cl)+1L, pch = as.integer(cl)+1L, ...)
+
+  # make grid
+  r <- sapply(data, range, na.rm = TRUE)
+  xs <- seq(r[1,1], r[2,1], length.out = resolution)
+  ys <- seq(r[1,2], r[2,2], length.out = resolution)
+  g <- cbind(rep(xs, each=resolution), rep(ys, time = resolution))
+  colnames(g) <- colnames(r)
+  g <- as.data.frame(g)
+
+  ### guess how to get class labels from predict
+  ### (unfortunately not very consistent between models)
+  p <- predict(model, g, type = predict_type)
+  if(is.list(p)) p <- p$class
+  p <- as.factor(p)
+
+  if(showgrid) points(g, col = as.integer(p)+1L, pch = ".")
+
+  z <- matrix(as.integer(p), nrow = resolution, byrow = TRUE)
+  contour(xs, ys, z, add = TRUE, drawlabels = FALSE,
+    lwd = 2, levels = (1:(k-1))+.5)
+
+  invisible(z)
+}
+```
+:::
+
+LDA is refitted to predict the constructed binary deprivation variable using the first two principal components as predictors. As shown in Question 6, PC1 and PC2 explain approximately $68.7\%$ of the total variance and provide a two-dimensional representation of the main structure in the data.
+
+```{r, Q8-1}
+lda_pc_data <- data.frame(depr_bin = pobal_sample$depr_bin,
+  PC1 = scores[,1], PC2 = scores[,2])
+lda_pc_fit <- lda(depr_bin ~ PC1 + PC2, data = lda_pc_data)
+lda_pc_cv <- lda(depr_bin ~ PC1 + PC2, data = lda_pc_data, CV = TRUE)
+tab_lda_pc <- table(lda_pc_cv$class, lda_pc_data$depr_bin); tab_lda_pc
+lda_pc_misclass <- 1 - sum(diag(tab_lda_pc)) / sum(tab_lda_pc)
+lda_pc_misclass
+```
+
+The performance of the model is assessed using leave-one-out cross-validation. The resulting confusion matrix shows that the model correctly classifies 418 observations in the `above_or_equal_0` category and 470 observations in the `below_0` category. The estimated misclassification rate is $0.112$, corresponding to an accuracy of approximately $88.8\%$.
+
+Compared with the LDA model fitted in Question 5 using all socioeconomic covariates, the classification performance is weaker. In Question 5, the LDA model achieves a misclassification rate of $0.065$, corresponding to an accuracy of approximately $93.5\%$. This reduction in performance is expected, since restricting the predictors to the first two principal components simplifies the data representation and may discard information that is useful for classification.
+
+However, the model still achieves reasonably good predictive performance, indicating that the first two principal components capture a substantial part of the separation between the two deprivation groups.
+
+To visualise the classification rule, the `boundary()` function from the recommended example is used to plot the linear Bayes decision boundary in the PC1–PC2 plane.
+
+```{r, Q8-2}
+#| fig-height: 5
+#| fig-width: 10
+boundary(lda_pc_fit, data = lda_pc_data[, c("PC1","PC2","depr_bin")],
+         class = "depr_bin", main = "LDA decision boundary (PC1 vs PC2)",
+         xlab = "PC1", ylab = "PC2")
+```
+
+The resulting plot shows a single straight decision boundary, as expected under LDA. The linearity of the boundary arises from the assumption of a common covariance matrix across groups ($\Sigma_1 = \Sigma_2$). This boundary provides a clear visual separation between the two groups, although some overlap remains, which is consistent with the observed classification error.
+
+## Question 9
+
+::: {.content-hidden when-format="pdf"}
+**Principal components regression (PCR), is an often useful regression method when predictor variables are highly correlated. See James, G., Witten, D., Hastie, T., and Tibshirani, R. (2021). *An Introduction to Statistical Learning with Applications in R* (available** [here](https://www.statlearning.com/)**) for details on this method. The PCR method is implemented in** **the `pls` R** **package (as the function `pctr`). Fit PCR to the data in order to predict `index_rel`. Motivate any decisions you make and evaluate the performance of your model using cross-validation. Outline the advantages and disadvantages of the method.**
+:::
+
+Principal Components Regression (PCR) is performed using the `pcr()` function from the `pls` package in order to predict the continuous response variable `index_rel` from the socioeconomic covariates. As discussed previously, the predictors are measured on different scales and may be correlated, so standardisation is applied (`scale = TRUE`) before computing the principal components.
+
+The model is fitted using 10-fold cross-validation (`validation = "CV"`), which provides an estimate of the prediction error for each possible number of principal components $M$. The results are examined using the `summary()` function and the cross-validation errors are visualised using a validation plot.
+
+```{r, Q9-1}
+#| message: false
+#| warning: false
+library(pls)
+set.seed(25221241)
+pcr_data <- data.frame(index_rel = pobal_sample$index_rel, pobal_scaled)
+pcr_fit <- pcr(index_rel ~ ., data = pcr_data, scale = TRUE, validation = "CV")
+summary(pcr_fit)
+validationplot(pcr_fit, val.type = "MSEP")
+```
+
+The cross-validation results show a substantial decrease in prediction error as the number of components increases. The CV RMSEP decreases from $6.519$ for the intercept-only model to $2.248$ with two components, and then continues to decrease more gradually. The minimum cross-validation error is achieved at $M=13$ ( RMSEP $= 1.315$ ), which corresponds to using all components and therefore performing no dimension reduction.
+
+However, most of the reduction in error occurs within the first few components, and the improvement beyond $M=7$ becomes more gradual. Using $M=7$ components yields a CV RMSEP of $1.833$, which is substantially lower than for smaller models and not dramatically higher than the minimum achieved with larger models. In addition, 7 components explain approx $91.11\%$ of the variation in X and $92.24\%$ of the variation in `index_rel`.
+
+```{r, Q9-2}
+pcr_fit_7 <- pcr(index_rel ~ ., data = pcr_data, scale = TRUE, ncomp = 7)
+summary(pcr_fit_7)
+```
+
+PCR offers several advantages in this context. By projecting the predictors onto orthogonal components, it reduces the impact of multicollinearity and leads to more stable predictions. It also provides a systematic way to reduce dimensionality while retaining most of the variability in the data.
+
+However, PCR also has important limitations. The principal components are constructed to explain variation in the predictors rather than their relationship with the response variable. As a result, components that explain large amounts of variance may not be the most relevant for predicting `index_rel`. Furthermore, the model is less interpretable, since the predictors are replaced by linear combinations of the original variables, and no variable selection is performed.
+
+Overall, PCR provides an effective predictive model for `index_rel`, with cross-validation indicating that a moderate number of components achieves a good balance between model complexity and predictive accuracy.

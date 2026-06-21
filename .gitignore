@@ -1,0 +1,22 @@
+# R / Quarto
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+_freeze/
+_site/
+
+# Quarto output
+*.pdf
+*_files/
+
+# Data — public source but large; link to Pobal instead
+data/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
